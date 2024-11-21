@@ -1,29 +1,27 @@
 package org.example;
 
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ArrayList;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 
 public class Estoque {
     private int estoque_id;
-    private double capacidadeTotal;
-    private List<Produto> produtos;
-    private List<Produto> produtosOtimizados;
-    private double capacidadeTotalOriginal;
+    private static int contadorIds = 1;
+    private final double capacidadeTotal;
+    private final List<Produto> produtos;
+    private final List<Produto> produtosOtimizados;
+    private final double capacidadeTotalOriginal;
 
     public Estoque(double capacidadeTotal) {
+        this.estoque_id = contadorIds++;
         this.capacidadeTotal = capacidadeTotal;
         this.capacidadeTotalOriginal = capacidadeTotal;
         this.produtos = new ArrayList<>();
         this.produtosOtimizados = new ArrayList<>();
     }
 
-    public List<Produto> getProdutosOtimizados() {
-        return produtosOtimizados;
+    public int getEstoque_id() {
+        return estoque_id;
     }
 
     public double getCapacidadeTotal() {
@@ -34,7 +32,11 @@ public class Estoque {
         return capacidadeTotalOriginal;
     }
 
-    public void removerProdutoDoBanco(int produtoId) {
+    public List<Produto> getProdutosOtimizados() {
+        return produtosOtimizados;
+    }
+
+    protected void removerProdutoDoBanco(int produtoId) {
         String sql = "DELETE FROM produto WHERE id = ?";
 
         try (Connection conn = Conexao.conectar();
@@ -53,16 +55,18 @@ public class Estoque {
         }
     }
 
-    public void listarProdutosOtimizados() {
+    protected List<Produto> listarProdutosOtimizados(int estoque_id) {
         for (Produto produto : produtosOtimizados) {
             System.out.println("Produto Otimizado: " + produto.getNome() + ", Id: " + produto.getId() + ", Peso: " + produto.getPeso() + " Kg" + ", Valor: " + produto.getValor() + " Reais");
         }
+        return null;
     }
 
-    public void otimizarDistribuicao() {
+    protected void otimizarDistribuicao(int estoque_id) {
         int n = produtos.size();
         int capacidadeInt = (int) capacidadeTotal;
         double[][] dp = new double[n + 1][capacidadeInt + 1];
+
         for (int i = 1; i <= n; i++) {
             Produto produto = produtos.get(i - 1);
             int pesoInt = (int) Math.round(produto.getPeso());
@@ -81,6 +85,7 @@ public class Estoque {
                 }
             }
         }
+
         int w = capacidadeInt;
         produtosOtimizados.clear();
         for (int i = n; i > 0 && w > 0; i--) {
@@ -97,55 +102,64 @@ public class Estoque {
         }
     }
 
-    public void adicionarProdutoNoBanco(Produto produto, int estoqueId) {
+    public int adicionarProdutoNoBanco(Produto produto, int idEstoque) {
         String sql = "INSERT INTO produto (peso, valor, nome, estoque_id) VALUES (?, ?, ?, ?)";
-
         try (Connection conn = Conexao.conectar();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             stmt.setDouble(1, produto.getPeso());
             stmt.setDouble(2, produto.getValor());
             stmt.setString(3, produto.getNome());
-            stmt.setInt(4, estoqueId);
-
-            int linhasAfetadas = stmt.executeUpdate();
-            if (linhasAfetadas > 0) {
-                System.out.println("Produto adicionado com sucesso.");
-            } else {
-                System.out.println("Falha ao adicionar o produto.");
+            stmt.setInt(4, idEstoque);
+            int rowsAffected = stmt.executeUpdate();
+            if (rowsAffected > 0) {
+                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        produto.setId(generatedKeys.getInt(1));
+                    }
+                }
             }
         } catch (SQLException e) {
-            System.out.println("Erro ao inserir produto: " + e.getMessage());
+            e.printStackTrace();
         }
+
+        return produto.getId(); // Agora o ID correto será retornado
     }
 
-    public void listarProdutosDoBanco(int estoqueId) {
+    protected List<Produto> listarProdutosDoBanco(int estoque_id) {
+        List<Produto> produtos = new ArrayList<>();
         String sql = "SELECT * FROM produto WHERE estoque_id = ?";
 
         try (Connection conn = Conexao.conectar();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.setInt(1, estoqueId);
+            stmt.setInt(1, estoque_id);
             ResultSet rs = stmt.executeQuery();
 
             while (rs.next()) {
-                System.out.println("Produto: " + rs.getString("nome") +
-                        ", Peso: " + rs.getDouble("peso") +
-                        ", Valor: " + rs.getDouble("valor"));
+                Produto produto = new Produto(
+                        rs.getDouble("peso"),
+                        rs.getDouble("valor"),
+                        rs.getString("nome")
+                );
+                produtos.add(produto);
+                System.out.println("Produto: " + produto.getNome() +
+                        ", Peso: " + produto.getPeso() +
+                        ", Valor: " + produto.getValor());
             }
         } catch (SQLException e) {
             System.out.println("Erro ao listar produtos: " + e.getMessage());
         }
+        return produtos;
     }
 
-    public void atualizarCapacidadeEstoque(int estoqueId, double novaCapacidade) {
+    protected void atualizarCapacidadeEstoque(int estoque_id, double novaCapacidade) {
         String sql = "UPDATE estoque SET capacidadeTotal = ? WHERE id = ?";
 
         try (Connection conn = Conexao.conectar();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setDouble(1, novaCapacidade);
-            stmt.setInt(2, estoqueId);
+            stmt.setInt(2, estoque_id);
 
             int linhasAfetadas = stmt.executeUpdate();
             if (linhasAfetadas > 0) {
@@ -158,7 +172,7 @@ public class Estoque {
         }
     }
 
-    public void adicionarEstoqueNoBanco() {
+    protected void adicionarEstoqueNoBanco() {
         String sql = "INSERT INTO estoque (capacidadeTotal) VALUES (?)";
 
         try (Connection conn = Conexao.conectar();
@@ -180,5 +194,45 @@ public class Estoque {
             System.out.println("Erro ao inserir estoque: " + e.getMessage());
         }
     }
-}
 
+    protected List<Integer> listarIdsEstoquesNoBanco() {
+        List<Integer> idsEstoques = new ArrayList<>();
+        String sql = "SELECT id FROM estoque";
+
+        try (Connection conn = Conexao.conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+
+            while (rs.next()) {
+                idsEstoques.add(rs.getInt("id"));
+            }
+
+        } catch (SQLException e) {
+            System.out.println("Erro ao listar IDs dos estoques: " + e.getMessage());
+        }
+
+        return idsEstoques;
+    }
+
+    protected boolean verificarEstoquePorId(int estoqueId) {
+        String sql = "SELECT id FROM estoque WHERE id = ?";
+
+        try (Connection conn = Conexao.conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, estoqueId);
+            ResultSet rs = stmt.executeQuery();
+
+            if (rs.next()) {
+                System.out.println("Estoque encontrado com o ID: " + estoqueId);
+                return true;
+            } else {
+                System.out.println("Estoque não encontrado com o ID: " + estoqueId);
+                return false;
+            }
+        } catch (SQLException e) {
+            System.out.println("Erro ao verificar estoque: " + e.getMessage());
+            return false;
+        }
+    }
+}
