@@ -36,7 +36,7 @@ public class Produto {
         return nome;
     }
 
-    private void setPeso(double peso) {
+    public void setPeso(double peso) {
         if (peso <= 0) {
             System.out.println("Erro: Peso não permitido.");
             System.exit(1);
@@ -44,7 +44,7 @@ public class Produto {
         this.peso = peso;
     }
 
-    private void setValor(double valor) {
+    public void setValor(double valor) {
         if (valor <= 0) {
             System.out.println("Erro: Valor não permitido.");
             System.exit(1);
@@ -52,7 +52,7 @@ public class Produto {
         this.valor = valor;
     }
 
-    private void setNome(String nome) {
+    public void setNome(String nome) {
         if (nome == null || nome.isBlank()) {
             System.out.println("Erro: O nome está vazio, é nulo, ou contém apenas espaços.");
             System.exit(1);
@@ -60,5 +60,8 @@ public class Produto {
         this.nome = nome;
     }
 
-
+    @Override
+    public String toString() {
+        return "ID: " + id + " | Nome: " + nome + " | Preço: R$ " + valor;
+    }
 }

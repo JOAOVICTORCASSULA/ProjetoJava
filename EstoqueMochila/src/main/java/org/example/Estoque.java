@@ -5,35 +5,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Estoque {
-    private int estoque_id;
+    int estoque_id;
     private static int contadorIds = 1;
     private final double capacidadeTotal;
     private final List<Produto> produtos;
-    private final List<Produto> produtosOtimizados;
-    private final double capacidadeTotalOriginal;
 
     public Estoque(double capacidadeTotal) {
         this.estoque_id = contadorIds++;
         this.capacidadeTotal = capacidadeTotal;
-        this.capacidadeTotalOriginal = capacidadeTotal;
         this.produtos = new ArrayList<>();
-        this.produtosOtimizados = new ArrayList<>();
-    }
-
-    public int getEstoque_id() {
-        return estoque_id;
     }
 
     public double getCapacidadeTotal() {
         return capacidadeTotal;
     }
 
-    public double getCapacidadeTotalOriginal() {
-        return capacidadeTotalOriginal;
-    }
-
-    public List<Produto> getProdutosOtimizados() {
-        return produtosOtimizados;
+    public List<Produto> getProdutos() {
+        return produtos;
     }
 
     protected void removerProdutoDoBanco(int produtoId) {
@@ -55,75 +43,60 @@ public class Estoque {
         }
     }
 
-    protected List<Produto> listarProdutosOtimizados(int estoque_id) {
-        for (Produto produto : produtosOtimizados) {
-            System.out.println("Produto Otimizado: " + produto.getNome() + ", Id: " + produto.getId() + ", Peso: " + produto.getPeso() + " Kg" + ", Valor: " + produto.getValor() + " Reais");
-        }
-        return null;
-    }
+    protected Estoque buscarEstoquePorId(int estoqueId) {
+        String sql = "SELECT * FROM estoque WHERE id = ?";
+        Estoque estoque = null;
 
-    protected void otimizarDistribuicao(int estoque_id) {
-        int n = produtos.size();
-        int capacidadeInt = (int) capacidadeTotal;
-        double[][] dp = new double[n + 1][capacidadeInt + 1];
-
-        for (int i = 1; i <= n; i++) {
-            Produto produto = produtos.get(i - 1);
-            int pesoInt = (int) Math.round(produto.getPeso());
-            double valor = produto.getValor();
-
-            if (pesoInt <= 0) {
-                System.out.println("Produto com peso inválido: " + produto.getNome());
-                continue;
-            }
-
-            for (int j = 0; j <= capacidadeInt; j++) {
-                if (pesoInt <= j) {
-                    dp[i][j] = Math.max(dp[i - 1][j], dp[i - 1][j - pesoInt] + valor);
-                } else {
-                    dp[i][j] = dp[i - 1][j];
-                }
-            }
-        }
-
-        int w = capacidadeInt;
-        produtosOtimizados.clear();
-        for (int i = n; i > 0 && w > 0; i--) {
-            if (dp[i][w] != dp[i - 1][w]) {
-                Produto produto = produtos.get(i - 1);
-                produtosOtimizados.add(produto);
-                w -= (int) Math.round(produto.getPeso());
-            }
-        }
-
-        System.out.println("Produtos Otimizados para a Capacidade Total:");
-        for (Produto produto : produtosOtimizados) {
-            System.out.println(produto.getNome() + " - Peso: " + produto.getPeso() + "kg, Valor: " + produto.getValor());
-        }
-    }
-
-    public int adicionarProdutoNoBanco(Produto produto, int idEstoque) {
-        String sql = "INSERT INTO produto (peso, valor, nome, estoque_id) VALUES (?, ?, ?, ?)";
         try (Connection conn = Conexao.conectar();
-             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            stmt.setDouble(1, produto.getPeso());
-            stmt.setDouble(2, produto.getValor());
-            stmt.setString(3, produto.getNome());
-            stmt.setInt(4, idEstoque);
-            int rowsAffected = stmt.executeUpdate();
-            if (rowsAffected > 0) {
-                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
-                    if (generatedKeys.next()) {
-                        produto.setId(generatedKeys.getInt(1));
-                    }
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, estoqueId);
+            ResultSet rs = stmt.executeQuery();
+
+            if (rs.next()) {
+                double capacidadeTotal = rs.getDouble("capacidadeTotal");
+                estoque = new Estoque(capacidadeTotal);
+                estoque.estoque_id = estoqueId;  // Define o ID do estoque
+                estoque.produtos.addAll(listarProdutosDoBanco(estoqueId));  // Carrega os produtos
+            } else {
+                System.out.println("Estoque não encontrado com o ID: " + estoqueId);
+            }
+        } catch (SQLException e) {
+            System.out.println("Erro ao buscar estoque: " + e.getMessage());
+        }
+
+        return estoque;
+    }
+
+    private double calcularPesoTotalAtual() {
+        double pesoTotal = 0.0;
+        for (Produto produto : produtos) {
+            pesoTotal += produto.getPeso();
+        }
+        return pesoTotal;
+    }
+
+    private double calcularPesoTotalNoBanco(int idEstoque) {
+        String sql = "SELECT SUM(peso) AS peso_total FROM produto WHERE estoque_id = ?";
+        double pesoTotal = 0.0;
+
+        try (Connection conn = Conexao.conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, idEstoque);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    pesoTotal = rs.getDouble("peso_total");
                 }
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
 
-        return produto.getId(); // Agora o ID correto será retornado
+        return pesoTotal;
     }
+
+
 
     protected List<Produto> listarProdutosDoBanco(int estoque_id) {
         List<Produto> produtos = new ArrayList<>();
@@ -141,8 +114,12 @@ public class Estoque {
                         rs.getDouble("valor"),
                         rs.getString("nome")
                 );
+                produto.setId(rs.getInt("id")); // Seta o ID do banco no objeto Produto
                 produtos.add(produto);
-                System.out.println("Produto: " + produto.getNome() +
+
+                // Adiciona uma mensagem de debug para conferir os dados
+                System.out.println("Produto ID: " + produto.getId() +
+                        ", Nome: " + produto.getNome() +
                         ", Peso: " + produto.getPeso() +
                         ", Valor: " + produto.getValor());
             }
@@ -151,6 +128,102 @@ public class Estoque {
         }
         return produtos;
     }
+
+    public void otimizarDistribuicao(double capacidadeMochila) {
+        // Verificando se a capacidade da mochila é válida
+        if (capacidadeMochila <= 0) {
+            System.out.println("A capacidade deve ser um número positivo.");
+            return;
+        }
+
+        // Obtenção dos produtos
+        List<Produto> produtos = this.getProdutos(); // Método que retorna os produtos do estoque
+        int n = produtos.size();
+
+        // Criando a tabela para otimização (Knapsack)
+        double[][] dp = new double[n + 1][(int) capacidadeMochila + 1];
+
+        // Preenchendo a tabela dp
+        for (int i = 1; i <= n; i++) {
+            Produto produto = produtos.get(i - 1);
+            int pesoInt = (int) Math.round(produto.getPeso());
+            double valor = produto.getValor();
+
+            if (pesoInt <= 0) {
+                continue;
+            }
+
+            for (int j = 0; j <= capacidadeMochila; j++) {
+                if (pesoInt <= j) {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i - 1][j - pesoInt] + valor);
+                } else {
+                    dp[i][j] = dp[i - 1][j];
+                }
+            }
+        }
+
+        // Recuperando os itens escolhidos
+        int w = (int) capacidadeMochila;
+        StringBuilder produtosEscolhidos = new StringBuilder();
+        for (int i = n; i > 0 && w > 0; i--) {
+            if (dp[i][w] != dp[i - 1][w]) {
+                Produto produto = produtos.get(i - 1);
+                produtosEscolhidos.append(produto.getNome())
+                        .append(" (Peso: ").append(produto.getPeso())
+                        .append(", Valor: ").append(produto.getValor())
+                        .append(")\n");
+                w -= (int) Math.round(produto.getPeso());
+            }
+        }
+
+        // Exibindo os resultados
+        if (produtosEscolhidos.length() > 0) {
+            System.out.println("Produtos escolhidos para carregar na mochila:\n" + produtosEscolhidos.toString());
+        } else {
+            System.out.println("Nenhum produto foi selecionado.");
+        }
+    }
+
+    public int adicionarProdutoNoBanco(Produto produto, int idEstoque) {
+        double pesoTotalBanco = calcularPesoTotalNoBanco(idEstoque);
+        double pesoTotalAtual = calcularPesoTotalAtual();
+        double pesoTotalGeral = pesoTotalBanco + pesoTotalAtual;
+
+        if ((pesoTotalGeral + produto.getPeso()) > capacidadeTotal) {
+            System.out.println("Erro: Produto excede a capacidade total do estoque.");
+            return -1;
+        }
+
+        String sql = "INSERT INTO produto (peso, valor, nome, estoque_id) VALUES (?, ?, ?, ?)";
+        try (Connection conn = Conexao.conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+
+            stmt.setDouble(1, produto.getPeso());
+            stmt.setDouble(2, produto.getValor());
+            stmt.setString(3, produto.getNome());
+            stmt.setInt(4, idEstoque);
+
+            int rowsAffected = stmt.executeUpdate();
+            if (rowsAffected > 0) {
+                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        produto.setId(generatedKeys.getInt(1)); // Define o ID do banco no objeto Produto
+                        produtos.add(produto); // Adiciona o produto à lista em memória
+
+                        // Adiciona uma mensagem de debug para conferir o ID gerado
+                        System.out.println("Produto inserido com sucesso no banco com ID: " + produto.getId());
+                    } else {
+                        System.out.println("Erro: Nenhum ID foi gerado para o produto.");
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return produto.getId();
+    }
+
 
     protected void atualizarCapacidadeEstoque(int estoque_id, double novaCapacidade) {
         String sql = "UPDATE estoque SET capacidadeTotal = ? WHERE id = ?";
@@ -172,7 +245,7 @@ public class Estoque {
         }
     }
 
-    protected void adicionarEstoqueNoBanco() {
+    protected void adicionarEstoqueNoBanco(double capacidadeTotal) {
         String sql = "INSERT INTO estoque (capacidadeTotal) VALUES (?)";
 
         try (Connection conn = Conexao.conectar();
@@ -212,27 +285,5 @@ public class Estoque {
         }
 
         return idsEstoques;
-    }
-
-    protected boolean verificarEstoquePorId(int estoqueId) {
-        String sql = "SELECT id FROM estoque WHERE id = ?";
-
-        try (Connection conn = Conexao.conectar();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setInt(1, estoqueId);
-            ResultSet rs = stmt.executeQuery();
-
-            if (rs.next()) {
-                System.out.println("Estoque encontrado com o ID: " + estoqueId);
-                return true;
-            } else {
-                System.out.println("Estoque não encontrado com o ID: " + estoqueId);
-                return false;
-            }
-        } catch (SQLException e) {
-            System.out.println("Erro ao verificar estoque: " + e.getMessage());
-            return false;
-        }
     }
 }

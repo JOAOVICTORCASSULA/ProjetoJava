@@ -6,14 +6,37 @@ import java.awt.event.ActionListener;
 import java.util.List;
 
 public class EstoqueApp {
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new EstoqueApp().createAndShowGUI());
-    }
-
     private Estoque estoque;
 
-    public EstoqueApp() {
-        this.estoque = new Estoque(1);
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            double capacidade = solicitarCapacidadeInicial();
+            if (capacidade > 0) {
+                new EstoqueApp(capacidade).createAndShowGUI();
+            } else {
+                JOptionPane.showMessageDialog(null, "Capacidade inválida. Encerrando aplicação.");
+            }
+        });
+    }
+
+    public EstoqueApp(double capacidadeTotal) {
+        this.estoque = new Estoque(capacidadeTotal);
+        try {
+            estoque.adicionarEstoqueNoBanco(capacidadeTotal);
+            JOptionPane.showMessageDialog(null, "Estoque inicial adicionado com sucesso!");
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(null, "Erro ao adicionar estoque inicial: " + e.getMessage());
+        }
+    }
+
+
+    private static double solicitarCapacidadeInicial() {
+        String capacidadeStr = JOptionPane.showInputDialog(null, "Digite a capacidade total do estoque:");
+        try {
+            return Double.parseDouble(capacidadeStr);
+        } catch (NumberFormatException e) {
+            return -1; // Retorna valor inválido para encerrar
+        }
     }
 
     private void createAndShowGUI() {
@@ -21,7 +44,7 @@ public class EstoqueApp {
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(800, 600);
 
-        String imagePath = "src/main/java/org/example/imagem.jpg.jpg";  // Caminho da imagem
+        String imagePath = "src/main/java/org/example/imagem.jpg.jpg"; // Caminho da imagem
 
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.addTab("Menu", createMenuTab(imagePath));
@@ -57,11 +80,10 @@ public class EstoqueApp {
         JPanel buttonPanel = new JPanel();
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
 
+        // Botões para otimizar e listar produtos otimizados
         JButton botao1 = createButtonWithIcon("Fazer Otimização", null, e -> otimizarDistribuicao());
         buttonPanel.add(botao1);
         buttonPanel.add(Box.createRigidArea(new Dimension(0, 10)));
-        JButton botao2 = createButtonWithIcon("Listar Produtos Otimizados", null, e -> listarProdutosOtimizados());
-        buttonPanel.add(botao2);
 
         for (Component comp : buttonPanel.getComponents()) {
             if (comp instanceof JButton) {
@@ -91,7 +113,7 @@ public class EstoqueApp {
             Image scaledImage = image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
             imageLabel.setIcon(new ImageIcon(scaledImage));
         } catch (Exception e) {
-            e.printStackTrace();
+            JOptionPane.showMessageDialog(null, "Erro ao carregar imagem: " + e.getMessage());
             imageLabel.setText("Imagem não encontrada!");
         }
         imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -110,8 +132,90 @@ public class EstoqueApp {
         return button;
     }
 
-    // Ações para os botões
+    private void otimizarDistribuicao() {
+        String idEstoqueStr = JOptionPane.showInputDialog(null, "Digite o ID do estoque:");
+        if (idEstoqueStr == null || idEstoqueStr.isEmpty()) {
+            JOptionPane.showMessageDialog(null, "ID do estoque não pode ser vazio.");
+            return;
+        }
 
+        try {
+            int idEstoque = Integer.parseInt(idEstoqueStr);
+
+            // Aqui, a instância de Estoque é usada para chamar o método
+            Estoque estoque = this.estoque.buscarEstoquePorId(idEstoque); // Aqui você já está chamando diretamente
+
+            if (estoque == null) {
+                JOptionPane.showMessageDialog(null, "Estoque não encontrado.");
+                return;
+            }
+
+            // Solicitando a capacidade da mochila ao usuário
+            String capacidadeStr = JOptionPane.showInputDialog(null, "Digite a capacidade da mochila:");
+            if (capacidadeStr == null || capacidadeStr.isEmpty()) {
+                JOptionPane.showMessageDialog(null, "Capacidade da mochila não pode ser vazia.");
+                return;
+            }
+
+            double capacidadeMochila = Double.parseDouble(capacidadeStr);
+            if (capacidadeMochila <= 0) {
+                JOptionPane.showMessageDialog(null, "A capacidade deve ser um número positivo.");
+                return;
+            }
+
+            // Obtenção dos produtos e otimização da distribuição
+            List<Produto> produtos = estoque.getProdutos();
+            int n = produtos.size();
+
+            double[][] dp = new double[n + 1][(int) capacidadeMochila + 1];
+
+            // Preenchendo a tabela dp
+            for (int i = 1; i <= n; i++) {
+                Produto produto = produtos.get(i - 1);
+                int pesoInt = (int) Math.round(produto.getPeso());
+                double valor = produto.getValor();
+
+                if (pesoInt <= 0) {
+                    continue;
+                }
+
+                for (int j = 0; j <= capacidadeMochila; j++) {
+                    if (pesoInt <= j) {
+                        dp[i][j] = Math.max(dp[i - 1][j], dp[i - 1][j - pesoInt] + valor);
+                    } else {
+                        dp[i][j] = dp[i - 1][j];
+                    }
+                }
+            }
+
+            // Recuperando os itens escolhidos
+            int w = (int) capacidadeMochila;
+            StringBuilder produtosEscolhidos = new StringBuilder();
+            for (int i = n; i > 0 && w > 0; i--) {
+                if (dp[i][w] != dp[i - 1][w]) {
+                    Produto produto = produtos.get(i - 1);
+                    produtosEscolhidos.append(produto.getNome())
+                            .append(" (Peso: ").append(produto.getPeso())
+                            .append(", Valor: ").append(produto.getValor())
+                            .append(")\n");
+                    w -= (int) Math.round(produto.getPeso());
+                }
+            }
+
+            // Exibindo os resultados na interface gráfica
+            if (produtosEscolhidos.length() > 0) {
+                JOptionPane.showMessageDialog(null, "Produtos escolhidos para carregar na mochila:\n" + produtosEscolhidos.toString());
+            } else {
+                JOptionPane.showMessageDialog(null, "Nenhum produto foi selecionado.");
+            }
+
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(null, "ID inválido ou capacidade inválida. Por favor, insira um número.");
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(null, "Erro durante a otimização: " + e.getMessage());
+        }
+    }
+    
     private void listarIdsEstoques() {
         try {
             List<Integer> idsEstoques = estoque.listarIdsEstoquesNoBanco();
@@ -132,6 +236,8 @@ public class EstoqueApp {
             mostrarDialogoListagem("Produtos no Estoque", produtos);
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(null, "ID inválido. Tente novamente.");
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(null, "Erro ao listar produtos: " + e.getMessage());
         }
     }
 
@@ -139,13 +245,14 @@ public class EstoqueApp {
         String capacidadeStr = JOptionPane.showInputDialog(null, "Digite a capacidade total do estoque:");
         try {
             double capacidade = Double.parseDouble(capacidadeStr);
-            estoque.adicionarEstoqueNoBanco();
+            estoque.adicionarEstoqueNoBanco(capacidade);
+            JOptionPane.showMessageDialog(null, "Estoque adicionado com sucesso!");
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(null, "Capacidade inválida. Tente novamente.");
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao adicionar estoque: " + e.getMessage());
         }
-    }
+    } 
 
     private void adicionarProduto() {
         String idEstoqueStr = JOptionPane.showInputDialog(null, "Digite o ID do estoque:");
@@ -153,30 +260,22 @@ public class EstoqueApp {
             JOptionPane.showMessageDialog(null, "ID do estoque não pode ser vazio.");
             return;
         }
-
         String nomeProduto = JOptionPane.showInputDialog(null, "Digite o nome do produto:");
         if (nomeProduto == null || nomeProduto.isEmpty()) {
             JOptionPane.showMessageDialog(null, "Nome do produto não pode ser vazio.");
             return;
         }
-
         String pesoStr = JOptionPane.showInputDialog(null, "Digite o peso do produto:");
         String valorStr = JOptionPane.showInputDialog(null, "Digite o valor do produto:");
-
         if (pesoStr == null || valorStr == null || pesoStr.isEmpty() || valorStr.isEmpty()) {
             JOptionPane.showMessageDialog(null, "Peso ou valor do produto não podem ser vazios.");
             return;
         }
-
         try {
             double peso = Double.parseDouble(pesoStr);
             double valor = Double.parseDouble(valorStr);
-
             Produto produto = new Produto(peso, valor, nomeProduto);
-
-            // Aqui é onde o banco de dados entra em ação
             int idProduto = estoque.adicionarProdutoNoBanco(produto, Integer.parseInt(idEstoqueStr));
-
             if (idProduto != -1) {
                 JOptionPane.showMessageDialog(null, "Produto adicionado com sucesso! ID do Produto: " + idProduto);
             } else {
@@ -190,13 +289,17 @@ public class EstoqueApp {
     }
 
     private void removerProduto() {
-        String idEstoque = JOptionPane.showInputDialog(null, "Digite o ID do estoque:");
-        String idProdutoStr = JOptionPane.showInputDialog(null, "Digite o ID do produto a ser removido:");
+        String idProdutoStr = JOptionPane.showInputDialog(null, "Digite o ID do produto:");
+        if (idProdutoStr == null || idProdutoStr.isEmpty()) {
+            JOptionPane.showMessageDialog(null, "ID do produto não pode ser vazio.");
+            return;
+        }
         try {
             int idProduto = Integer.parseInt(idProdutoStr);
             estoque.removerProdutoDoBanco(idProduto);
+            JOptionPane.showMessageDialog(null, "Produto removido com sucesso.");
         } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(null, "ID inválido. Tente novamente.");
+            JOptionPane.showMessageDialog(null, "ID inválido.");
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao remover produto: " + e.getMessage());
         }
@@ -208,73 +311,29 @@ public class EstoqueApp {
         try {
             double novaCapacidade = Double.parseDouble(capacidadeStr);
             estoque.atualizarCapacidadeEstoque(Integer.parseInt(idEstoque), novaCapacidade);
+            JOptionPane.showMessageDialog(null, "Estoque atualizado com sucesso!");
         } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(null, "Capacidade inválida. Tente novamente.");
+            JOptionPane.showMessageDialog(null, "Valor inválido. Tente novamente.");
         } catch (Exception e) {
             JOptionPane.showMessageDialog(null, "Erro ao alterar estoque: " + e.getMessage());
         }
     }
 
-    private void otimizarDistribuicao() {
-        String idEstoque = JOptionPane.showInputDialog(null, "Digite o ID do estoque:");
-        try {
-            estoque.otimizarDistribuicao(Integer.parseInt(idEstoque));
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(null, "ID inválido. Tente novamente.");
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(null, "Erro ao otimizar distribuição: " + e.getMessage());
-        }
-    }
-
-    private void listarProdutosOtimizados() {
-        String idEstoque = JOptionPane.showInputDialog(null, "Digite o ID do estoque:");
-        try {
-            List<Produto> produtosOtimizados = estoque.listarProdutosOtimizados(Integer.parseInt(idEstoque));
-            if (produtosOtimizados.isEmpty()) {
-                JOptionPane.showMessageDialog(null, "Nenhum produto otimizado encontrado.");
-            } else {
-                mostrarDialogoListagem("Produtos Otimizados", produtosOtimizados);
-            }
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(null, "ID inválido. Tente novamente.");
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(null, "Erro ao listar produtos otimizados: " + e.getMessage());
-        }
-    }
+    // Métodos auxiliares para mostrar listagens
 
     private void mostrarDialogoListagem(String titulo, List<Produto> produtos) {
-        JDialog dialog = new JDialog();
-        dialog.setTitle(titulo);
-        dialog.setSize(400, 300);
-
-        JTextArea textArea = new JTextArea();
-        // Exibe a lista de produtos com IDs
+        StringBuilder sb = new StringBuilder();
         for (Produto produto : produtos) {
-            // Verifique se o ID é válido
-            textArea.append("ID: " + + produto.getId() +
-                    " | Nome: " + produto.getNome() + " | Peso: " + produto.getPeso() + " | Valor: " + produto.getValor() + "\n");
+            sb.append(produto.toString()).append("\n");
         }
-
-        textArea.setEditable(false);
-        dialog.add(new JScrollPane(textArea));
-        dialog.setVisible(true);
+        JOptionPane.showMessageDialog(null, sb.toString(), titulo, JOptionPane.INFORMATION_MESSAGE);
     }
 
-
-    private void mostrarDialogoListagemIds(String titulo, List<Integer> ids) {
-        JDialog dialog = new JDialog();
-        dialog.setTitle(titulo);
-        dialog.setSize(400, 300);
-
-        JTextArea textArea = new JTextArea();
-        for (Integer id : ids) {
-            textArea.append("ID do Estoque: " + id + "\n");
+    private void mostrarDialogoListagemIds(String titulo, List<Integer> idsEstoques) {
+        StringBuilder sb = new StringBuilder();
+        for (Integer id : idsEstoques) {
+            sb.append(id).append("\n");
         }
-
-        textArea.setEditable(false);
-        dialog.add(new JScrollPane(textArea));
-        dialog.setVisible(true);
+        JOptionPane.showMessageDialog(null, sb.toString(), titulo, JOptionPane.INFORMATION_MESSAGE);
     }
 }
-
-
